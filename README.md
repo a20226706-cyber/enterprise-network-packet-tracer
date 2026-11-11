@@ -1,8 +1,10 @@
-# Red Empresarial Segmentada en Cisco Packet Tracer
+# Red empresarial segmentada con OSPF entre sedes en Cisco Packet Tracer
 
 Proyecto personal orientado a practicar fundamentos de redes mediante el diseño y configuración de una red empresarial segmentada utilizando Cisco Packet Tracer.
 
 La red fue dividida en diferentes áreas mediante VLANs y se implementó routing inter-VLAN, DHCP y una ACL para controlar la comunicación entre segmentos.
+
+Una sucursal accede al servidor de la sede principal mediante dos enlaces entre routers. OSPF selecciona el camino de menor costo y cambia al respaldo cuando falla el principal.
 
 ## Tecnologías y conceptos
 
@@ -15,31 +17,14 @@ La red fue dividida en diferentes áreas mediante VLANs y se implementó routing
 - Routing inter-VLAN
 - DHCP
 - ACL
+- OSPF en área 0 y redundancia de enlaces
 - Troubleshooting de conectividad
 
 ## Topología
 
-La red está compuesta por:
+La sede principal reúne el router R1, el switch SW1, tres PCs y un servidor. La sucursal cuenta con R2, el switch SW2 y una PC. Dos enlaces independientes conectan R1 y R2.
 
-- 1 router
-- 1 switch Cisco 2960
-- 3 PCs
-- 1 servidor
-
-Las áreas fueron separadas de la siguiente manera:
-
-```text
-R1
- |
- | 802.1Q Trunk
- |
-SW1
- |
- +-- VLAN 10 → Administración
- +-- VLAN 20 → Soporte
- +-- VLAN 30 → Ventas
- +-- VLAN 40 → Servidores
-```
+![Topología de la sede principal y la sucursal con dos enlaces entre R1 y R2](screenshots/second-commit/topology2.png)
 
 ## Direccionamiento
 
@@ -49,6 +34,8 @@ SW1
 | 20 | Soporte | 192.168.20.0/24 | 192.168.20.1 |
 | 30 | Ventas | 192.168.30.0/24 | 192.168.30.1 |
 | 40 | Servidores | 192.168.40.0/24 | 192.168.40.1 |
+
+La LAN de la sucursal utiliza `192.168.50.0/24` y su gateway es `192.168.50.1`.
 
 El servidor utiliza una dirección IP estática:
 
@@ -98,7 +85,7 @@ Esto permite que dispositivos pertenecientes a diferentes VLANs puedan comunicar
 
 ## DHCP
 
-El router fue configurado como servidor DHCP para las VLANs de usuarios.
+R1 fue configurado como servidor DHCP para las VLANs de usuarios.
 
 Se crearon pools independientes para:
 
@@ -108,7 +95,7 @@ SOPORTE
 VENTAS
 ```
 
-Las PCs reciben automáticamente:
+Las PCs de Administración, Soporte y Ventas reciben automáticamente:
 
 - dirección IPv4
 - máscara de subred
@@ -147,6 +134,33 @@ Se realizaron pruebas para comprobar:
 - funcionamiento de la ACL
 - restricción de tráfico entre Ventas y Administración
 
+## Redundancia entre sedes con OSPF
+
+| Enlace | Subred | Interfaz e IP de R1 | Interfaz e IP de R2 |
+|---|---|---|---|
+| Principal | `10.0.0.0/30` | G0/1 · `10.0.0.1` | G0/0 · `10.0.0.2` |
+| Respaldo | `10.0.0.4/30` | G0/2 · `10.0.0.5` | G0/2 · `10.0.0.6` |
+
+R1 y R2 forman una adyacencia OSPF por cada enlace. El costo configurado en la interfaz de respaldo es 100. Desde R2, el costo total hasta cada red de la sede principal es 2 por el enlace principal y 101 por el respaldo.
+
+### 1. Caída del enlace principal
+
+Antes de la falla, R2 alcanzaba las cuatro redes de R1 por `10.0.0.1`. Al ejecutar `shutdown` en G0/0 de R2, las cuatro rutas cambiaron automáticamente a `10.0.0.5` por G0/2.
+
+![Rutas OSPF en R2 antes y después de desactivar el enlace principal](screenshots/second-commit/G0_0_shutdown.png)
+
+### 2. Acceso al servidor por el respaldo
+
+Con el enlace principal desactivado, PC-SUCURSAL recibió tres de cuatro respuestas al hacer ping al servidor. El recorrido de `tracert 192.168.40.10` fue `192.168.50.1 → 10.0.0.5 → 192.168.40.10`, lo que confirma el paso por el respaldo.
+
+![Ping y trazado desde la sucursal hasta el servidor por el enlace de respaldo](screenshots/second-commit/tracerout.png)
+
+### 3. Recuperación del enlace principal
+
+Tras ejecutar `no shutdown` en G0/0 de R2, la adyacencia volvió al estado `FULL`. La tabla de rutas mostró las cuatro redes nuevamente por `10.0.0.1`, con costo 2.
+
+![Adyacencias OSPF y rutas por el enlace principal tras la recuperación](screenshots/second-commit/G0_0_no_shutdown.png)
+
 ## Evidencias
 
 Las capturas de configuración y pruebas se encuentran en:
@@ -175,20 +189,4 @@ El laboratorio completo se encuentra en:
 
 ## Resultado
 
-El proyecto permitió implementar una red empresarial segmentada utilizando conceptos fundamentales de switching, routing y control de acceso.
-
-La arquitectura final integra:
-
-```text
-VLANs
-  ↓
-Trunk 802.1Q
-  ↓
-Router-on-a-Stick
-  ↓
-Routing inter-VLAN
-  ↓
-DHCP
-  ↓
-ACL
-```
+La sede principal cuenta con cuatro VLANs, asignación DHCP para las PCs de usuarios y control de acceso entre Ventas y Administración. La prueba entre sedes verificó el acceso al servidor por el enlace de respaldo y el retorno automático al enlace de menor costo al recuperarse el principal.
